@@ -116,7 +116,7 @@ class FSOperationsImpl(FSOperations):
             file = mmap.mmap(f.fileno(), length=0, access=mmap.ACCESS_READ)
             data = file.read()
 
-        return data
+        return data.decode('UTF-8')
 
     def delete(self, filename: str):
         data_path = self._prepare_path(filename)
