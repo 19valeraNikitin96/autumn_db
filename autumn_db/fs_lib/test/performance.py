@@ -1,78 +1,91 @@
+import json
+import random
+import string
 import unittest
 import timeit
+
+from fs_lib.data_access import FSOperations
 from fs_lib.data_access.impl import FSOperationsMockImpl, FSOperationsImpl, FSCollectionMeta, FSServiceOperations
 
+doc_count = 1000
 
-class Functions():
-    def __init__(self, fs_opers, fs_opers_mock):
-        self._fs_opers = fs_opers
-        self._fs_opers_mock = fs_opers_mock
+fs_collection_meta = FSCollectionMeta('users')
+fs_service_opers = FSServiceOperations(fs_collection_meta)
 
-    def func_read(self):
-        for i in range(10):
-            filename = str(i)
-            self._fs_opers.read(filename)
+fs_opers = FSOperationsMockImpl(fs_collection_meta)
+fs_opers_optimized = FSOperationsImpl(fs_collection_meta)
 
-    def func_read_mock(self):
-        for i in range(10):
-            filename = str(i)
-            self._fs_opers_mock.read(filename)
 
-    def func_update(self):
-        for i in range(10):
-            filename = str(i)
-            self._fs_opers.update(filename, 'this is new data')
+def generate_random_string(data_len: int = 8) -> str:
+    return ''.join(random.choice(string.printable) for _ in range(data_len))
 
-    def func_update_mock(self):
-        for i in range(10):
-            filename = str(i)
-            self._fs_opers_mock.update_mock(filename, 'this is new data')
+
+def generate_random_user_data() -> dict:
+    return {
+        'firstname': generate_random_string(),
+        'lastname': generate_random_string(),
+        'age': random.randint(0, 100),
+        'address': generate_random_string(12),
+        'city': generate_random_string(5),
+        'country': generate_random_string(6),
+        'job': generate_random_string(6)
+    }
 
 
 class TestIO(unittest.TestCase):
 
     def setUp(self):
-        fs_col_meta = FSCollectionMeta('my_collection')
-        fs_service_opers = FSServiceOperations(fs_col_meta)
         fs_service_opers.create_collection()
 
-        fs_opers = FSOperationsImpl(fs_col_meta)
-        fs_opers_mock = FSOperationsMockImpl(fs_col_meta)
-        for i in range(10):
-            fs_opers.create(str(i), 'this is data')
-            fs_opers_mock.create(str(i) + '_mock', 'this is data')
+        self._filenames = list()
+        random_data = generate_random_user_data()
+        for i in range(doc_count):
+            filename = f"test_data_{i}"
+            self._filenames.append(filename)
+            fs_opers_optimized.create(filename, json.dumps(random_data))
 
-    def test_read(self):
-        start_mmap_time = timeit.default_timer()
-        func_read()
-        mmap_time = timeit.default_timer() - start_mmap_time
+    def test_read_success(self):
+        def measurement(fs_driver: FSOperations) -> float:
+            time_before = timeit.default_timer()
+            for filename in self._filenames:
+                fs_driver.read(filename)
+            time_after = timeit.default_timer()
 
-        start_regular_time = timeit.default_timer()
-        func_read_mock()
-        regular_time = timeit.default_timer() - start_regular_time
+            return time_after - time_before
 
-        # should be mmap_time < regular_time, setting it otherwise to pass the test
-        self.assertTrue(mmap_time > regular_time)
+        fs_opers_res = measurement(fs_opers)
+        fs_opers_optimized_res = measurement(fs_opers_optimized)
 
-    def test_update(self):
-        start_mmap_time = timeit.default_timer()
-        func_update()
-        mmap_time = timeit.default_timer() - start_mmap_time
+        res = fs_opers_optimized_res < fs_opers_res
+        if not res:
+            print(f"Optimized version is worst comparing with builtin I/O for the reading documents")
 
-        start_regular_time = timeit.default_timer()
-        func_update_mock()
-        regular_time = timeit.default_timer() - start_regular_time
+        print(f"Builtin I/O: {fs_opers_res} s")
+        print(f"Optimized version: {fs_opers_optimized_res} s")
+        self.assertTrue(res)
 
-        # should be mmap_time < regular_time, setting it otherwise to pass the test
-        self.assertTrue(mmap_time > regular_time)
+    def test_update_success(self):
+        new_data_json = generate_random_user_data()
+        new_data = json.dumps(new_data_json)
+
+        def measurement(fs_driver: FSOperations) -> float:
+            time_before = timeit.default_timer()
+            for filename in self._filenames:
+                fs_driver.update(filename, new_data)
+            time_after = timeit.default_timer()
+
+            return time_after - time_before
+
+        fs_opers_optimized_res = measurement(fs_opers_optimized)
+        fs_opers_res = measurement(fs_opers)
+
+        res = fs_opers_optimized_res < fs_opers_res
+        if not res:
+            print(f"Optimized version is worst comparing with builtin I/O for the updating documents")
+
+        print(f"Builtin I/O: {fs_opers_res} s")
+        print(f"Optimized version: {fs_opers_optimized_res} s")
+        self.assertTrue(res)
 
     def tearDown(self):
-        pass
-        # for i in range(10):
-        #     fs_opers.delete(str(i))
-        #     fs_opers_mock.create(str(i) + '_mock')
-        #     fs_service_opers.remove_collection()
-
-
-if __name__ == '__main__':
-    unittest.main()
+        fs_service_opers.remove_collection()
