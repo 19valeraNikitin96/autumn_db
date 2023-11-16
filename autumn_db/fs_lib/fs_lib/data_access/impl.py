@@ -98,13 +98,25 @@ class FSOperationsImpl(FSOperations):
             file.close()
             f.close()
 
-        with open(metadata_path, 'r+') as f:
-            _metadata = f.read()
+        def update_metadata():
+            with open(metadata_path, 'r') as f:
+                _metadata = f.read()
+
             metadata = json.loads(_metadata)
-            metadata[FSOperationsImpl.UPDATED_AT_KEY] = datetime.datetime.utcnow().strftime(
+            metadata[FSOperationsMockImpl.UPDATED_AT_KEY] = datetime.datetime.utcnow().strftime(
                 FSCollectionService.UTC_FORMAT)
             _metadata = json.dumps(metadata)
-            f.write(_metadata)
+
+            with open(metadata_path, 'r+b') as f:
+                file = mmap.mmap(f.fileno(), length=0, access=mmap.ACCESS_WRITE)
+                startofline = file.rfind(b'\n', 0, len(file) - 1) + 1
+                file.resize(startofline + len(_metadata))
+                file[startofline:] = _metadata.encode()
+                file.flush()
+                file.close()
+                f.close()
+
+        update_metadata()
 
     def read(self, filename: str) -> str:
         path = self._prepare_path(filename)
@@ -169,12 +181,20 @@ class FSOperationsMockImpl(FSOperations):
 
         with open(data_path, 'w') as f:
             f.write(data)
-        with open(metadata_path, 'r+') as f:
-            _metadata = f.read()
+
+        def update_metadata():
+            with open(metadata_path, 'r') as f:
+                _metadata = f.read()
+
             metadata = json.loads(_metadata)
-            metadata[FSOperationsMockImpl.UPDATED_AT_KEY] = datetime.datetime.utcnow().strftime(FSCollectionService.UTC_FORMAT)
+            metadata[FSOperationsMockImpl.UPDATED_AT_KEY] = datetime.datetime.utcnow().strftime(
+                FSCollectionService.UTC_FORMAT)
             _metadata = json.dumps(metadata)
-            f.write(_metadata)
+
+            with open(metadata_path, 'w') as f:
+                f.write(_metadata)
+
+        update_metadata()
 
     def read(self, filename: str) -> str:
         path = self._prepare_path(filename)
