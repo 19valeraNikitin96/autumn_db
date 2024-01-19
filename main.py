@@ -1,16 +1,24 @@
-# This is a sample Python script.
+import json
 
-# Press Shift+F10 to execute it or replace it with your code.
-# Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
+from autumn_db.data_storage.collection.impl import CollectionOperationsImpl
 
+users = CollectionOperationsImpl('users')
 
-def print_hi(name):
-    # Use a breakpoint in the code line below to debug your script.
-    print(f'Hi, {name}')  # Press Ctrl+F8 to toggle the breakpoint.
+users.create()
 
+user_data = {
+    'firstname': 'Valerii',
+    'lastname': 'Nikitin'
+}
+data_str = json.dumps(user_data)
 
-# Press the green button in the gutter to run the script.
-if __name__ == '__main__':
-    print_hi('PyCharm')
+filename = 'test1'
+data_operator = users.get_document_operator(filename)
+metadata = users.get_metadata_operator(filename)
 
-# See PyCharm help at https://www.jetbrains.com/help/pycharm/
+users.create_document(filename, data_str)
+
+print(data_operator.read())
+print(metadata.get_updated_at())
+
+users.delete()
