@@ -2,7 +2,9 @@ import datetime
 import json
 import os
 import shutil
-
+print('Ok!!!!!')
+from autumn_db.autumn_db import DocumentId
+print('Ok!!!!')
 from autumn_db.data_storage.collection import FileOperations, MetadataOperations, CollectionOperations, file_access
 
 
@@ -14,7 +16,7 @@ class MetadataOperationsImpl(MetadataOperations):
         content = self._file_access.read(self._pathname)
         metadata = json.loads(content)
 
-        metadata[MetadataOperationsImpl.UPDATED_AT_KEY] = _datetime.strftime(MetadataOperations.UTC_FORMAT)
+        metadata[MetadataOperationsImpl.UPDATED_AT_KEY] = _datetime.strftime(DocumentId.UTC_FORMAT)
         content = json.dumps(metadata)
 
         self._file_access.update(self._pathname, content)
@@ -24,7 +26,7 @@ class MetadataOperationsImpl(MetadataOperations):
         metadata = json.loads(content)
         updated_at_str = metadata[MetadataOperationsImpl.UPDATED_AT_KEY]
 
-        res = datetime.datetime.strptime(updated_at_str, MetadataOperations.UTC_FORMAT)
+        res = datetime.datetime.strptime(updated_at_str, DocumentId.UTC_FORMAT)
         return res
 
     def is_frozen(self) -> bool:
@@ -45,6 +47,9 @@ class MetadataOperationsImpl(MetadataOperations):
 
 
 class FileOperationsImpl(FileOperations):
+
+    def create(self, file: str):
+        self._file_access.create(self._pathname, file)
 
     def update(self, file: str):
         self._file_access.update(self._pathname, file)
@@ -74,7 +79,7 @@ class CollectionOperationsImpl(CollectionOperations):
 
         metadata_content = {
             MetadataOperationsImpl.UPDATED_AT_KEY: datetime.datetime.utcnow().strftime(
-                    MetadataOperationsImpl.UTC_FORMAT),
+                    DocumentId.UTC_FORMAT),
             MetadataOperationsImpl.IS_FROZEN_KEY: False
         }
         metadata_content_str = json.dumps(metadata_content)
