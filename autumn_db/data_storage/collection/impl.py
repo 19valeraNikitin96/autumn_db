@@ -2,9 +2,8 @@ import datetime
 import json
 import os
 import shutil
-print('Ok!!!!!')
+
 from autumn_db.autumn_db import DocumentId
-print('Ok!!!!')
 from autumn_db.data_storage.collection import FileOperations, MetadataOperations, CollectionOperations, file_access
 
 

@@ -37,8 +37,11 @@ class TestCollection(unittest.TestCase):
         db_operation._is_stopped = True
 
     def test_create_read_success(self):
-        create = CreateOperation(collection_name, '{"firstname": "Valerii", "lastname": "Nikitin"}')
+        create = CreateOperation(collection_name, data_str)
         db_operation.add_operation(create)
+
+        # we give some delay before read operation
+        sleep(1)
 
         read = ReadOperation(collection_name, create.document_id)
         db_operation.add_operation(read)
