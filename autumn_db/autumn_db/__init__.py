@@ -104,13 +104,17 @@ class UpdateOperation(DocumentIdBasedOperation):
 
 class DatabaseOperations:
 
-    def on_create(self, payload: bytearray): ...
+    def _handle_create_operation(self, payload: bytearray): ...
 
-    def on_update(self, payload: bytearray): ...
+    def _handle_update_operation(self, payload: bytearray): ...
 
-    def on_delete(self, payload: bytearray): ...
+    def _handle_delete_operation(self, payload: bytearray): ...
 
     def on_read(self, payload: bytearray): ...
+
+    def create_collection(self, name: str): ...
+
+    def delete_collection(self, name: str): ...
 
 
 class DatabaseOperationsMockImpl(DatabaseOperations):
@@ -168,7 +172,7 @@ class DBCoreEngine:
             dirs = [f.path for f in os.scandir(candidate) if f.is_dir()]
 
             for required_dir in ['data', 'metadata']:
-                if required_dir not in dirs:
+                if required_dir in dirs:
                     exclude.add(candidate)
                     break
 
@@ -242,10 +246,8 @@ class DBOperationEngine:
     def _handle_create_operation(self, operation: CreateOperation):
         collection: CollectionOperations = self._collections[operation.collection]
 
-        filename = str(operation.document_id)
-        operator = collection.get_document_operator(filename)
-
-        operator.create(operation.data)
+        doc_id = str(operation.document_id)
+        collection.create_document(doc_id, operation.data)
 
     def _handle_update_operation(self, operation: UpdateOperation):
         collection: CollectionOperations = self._collections[operation.collection]
