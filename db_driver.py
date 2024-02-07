@@ -50,11 +50,23 @@ class Document:
         return self._doc
 
 
-def send_message_to(addr_port: tuple, message: bytes):
+def send_message_to(addr_port: tuple, message: bytes, expect_response: bool = False) -> bytearray:
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.connect(addr_port)
     s.sendall(message)
+
+    resp = None
+    if expect_response:
+        resp = bytearray()
+        while True:
+            part = s.recv(1)
+            if not part or part == b'\x00':
+                break
+
+            resp.extend(part)
+
     s.close()
+    return resp
 
 
 class DBDriver:
@@ -90,8 +102,14 @@ class DBDriver:
         for b in doc_bytes:
             _bytes.append(b)
 
-        _bytes = bytes(_bytes)
+        # _bytes.append(b'\x00') # we need it to terminate reading on server side
 
-        send_message_to(
-            (self._addr, self._port), _bytes
+        _bytes = bytearray(_bytes)
+        _bytes.extend(b'\x00')
+
+        doc_id_bytes = send_message_to(
+            (self._addr, self._port), _bytes, expect_response=True
         )
+
+        doc_id = doc_id_bytes.decode('utf-8')
+        return doc_id

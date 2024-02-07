@@ -1,7 +1,8 @@
 import socket
 import threading
 
-from autumn_db.autumn_db import DBCoreEngine, DBOperationEngine, CreateOperation
+from autumn_db import DocumentId
+from autumn_db.autumn_db import DBCoreEngine, DBOperationEngine, CreateOperation, ReadOperation
 from db_driver import DRIVER_COLLECTION_NAME_LENGTH_BYTES as COLLECTION_NAME_LENGTH_BYTES, DRIVER_OPERATION_LENGTH
 from db_driver import DRIVER_BYTEORDER as BYTEORDER
 from db_driver import DBNetworkOperation as DBOperation
@@ -34,7 +35,7 @@ class ClientEndpoint:
             received = bytearray()
             while True:
                 part = connection.recv(ClientEndpoint.BUFFER_SIZE)
-                if not part:
+                if not part or part == b'\x00':
                     break
 
                 received.extend(part)
@@ -54,13 +55,38 @@ class ClientEndpoint:
                 oper = CreateOperation(collection_name, doc_str)
                 self._db_opers.add_operation(oper)
 
-                continue
+                doc_id = oper.document_id
+                response_bytes = str(doc_id).encode('utf-8')
+                connection.sendall(response_bytes)
 
             if DBOperation.READ_DOC.value == oper:
-                pass
+                collection_name_length_bytes = received[:COLLECTION_NAME_LENGTH_BYTES:1]
+                received = received[COLLECTION_NAME_LENGTH_BYTES::]
+
+                collection_name_length = int.from_bytes(collection_name_length_bytes, BYTEORDER, signed=False)
+                collection_name_bytes = received[:collection_name_length:1]
+                collection_name = collection_name_bytes.decode('utf-8')
+
+                received = received[collection_name_length::]
+                doc_id = received.decode('utf-8')
+                doc_id = DocumentId(doc_id)
+
+                oper = ReadOperation(collection_name, doc_id)
+                self._db_opers.add_operation(oper)
+
+                while not oper.is_finished():
+                    continue
+
+                result = oper.data
+                _response_bytes = bytearray(result.encode('utf-8'))
+                _response_bytes.extend(b'\x00')
+
+                connection.sendall(_response_bytes)
 
             if DBOperation.UPDATE_DOC.value == oper:
                 pass
 
             if DBOperation.DELETE_DOC.value == oper:
                 pass
+
+            connection.close()

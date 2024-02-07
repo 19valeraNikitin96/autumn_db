@@ -238,8 +238,6 @@ class DBOperationEngine:
 
             while self._create_queue.qsize() > 0:
                 create_operation: CreateOperation = self._create_queue.get()
-                if create_operation.document_id in deleted_per_iteration:
-                    continue
 
                 self._handle_create_operation(create_operation)
 
