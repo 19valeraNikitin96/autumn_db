@@ -1,3 +1,4 @@
+import datetime
 import json
 import os
 from enum import Enum
@@ -251,8 +252,10 @@ class DBOperationEngine:
         collection: CollectionOperations = self._collections[operation.collection]
 
         filename = str(operation.document_id)
-        operator = collection.get_document_operator(filename)
+        metadata_operator = collection.get_metadata_operator(filename)
+        metadata_operator.set_updated_at(datetime.datetime.utcnow())
 
+        operator = collection.get_document_operator(filename)
         operator.update(operation.data)
 
     def _handle_read_operation(self, operation: ReadOperation):
