@@ -1,26 +1,15 @@
 import socket
 import threading
-from enum import Enum
 
 from autumn_db.autumn_db import DBCoreEngine, DBOperationEngine, CreateOperation
+from db_driver import DRIVER_COLLECTION_NAME_LENGTH_BYTES as COLLECTION_NAME_LENGTH_BYTES, DRIVER_OPERATION_LENGTH
+from db_driver import DRIVER_BYTEORDER as BYTEORDER
+from db_driver import DBNetworkOperation as DBOperation
 
-
-COLLECTION_NAME_LENGTH_BYTES = 4
-BYTEORDER = 'big'
-
-
-class DBOperation(Enum):
-    CREATE_DOC = 1
-    UPDATE_DOC = 2
-    DELETE_DOC = 3
-    READ_DOC = 4
-
-    CREATE_COLLECTION = 11
-    DELETE_COLLECTION = 12
 
 # MESSAGE format
 # |OpCode|Collection name length|Collection name|Data   |
-#  1byte        4bytes               1-16bytes   Xbytes
+#  1byte        1byte               1-255bytes   Xbytes
 class ClientEndpoint:
     BUFFER_SIZE = 1
 
@@ -51,7 +40,7 @@ class ClientEndpoint:
                 received.extend(part)
 
             oper = received[0]
-            received = received[1::]
+            received = received[DRIVER_OPERATION_LENGTH::]
             if DBOperation.CREATE_DOC.value == oper:
                 collection_name_length_bytes = received[:COLLECTION_NAME_LENGTH_BYTES:1]
                 received = received[COLLECTION_NAME_LENGTH_BYTES::]
