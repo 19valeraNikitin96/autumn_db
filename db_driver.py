@@ -3,6 +3,8 @@ import math
 import socket
 from enum import Enum
 
+from autumn_db import DocumentId
+
 DRIVER_OPERATION_LENGTH = 1
 DRIVER_COLLECTION_NAME_LENGTH_BYTES = 1
 DRIVER_COLLECTION_NAME_LENGTH_BYTES_MAX = 255
@@ -102,8 +104,6 @@ class DBDriver:
         for b in doc_bytes:
             _bytes.append(b)
 
-        # _bytes.append(b'\x00') # we need it to terminate reading on server side
-
         _bytes = bytearray(_bytes)
         _bytes.extend(b'\x00')
 
@@ -113,3 +113,31 @@ class DBDriver:
 
         doc_id = doc_id_bytes.decode('utf-8')
         return doc_id
+
+    def read_document(self, collection: CollectionName, doc_id: DocumentId):
+        oper_bytes = DBNetworkOperation.READ_DOC.value.to_bytes(DRIVER_OPERATION_LENGTH, DRIVER_BYTEORDER,
+                                                                  signed=False)
+
+        collection_name_bytes = collection.name.encode('utf-8')
+
+        collection_name_len = len(collection_name_bytes)
+        collection_name_len_encoded = collection_name_len.to_bytes(DRIVER_COLLECTION_NAME_LENGTH_BYTES,
+                                                                   DRIVER_BYTEORDER, signed=False)
+
+        doc_id_bytes = str(doc_id).encode('utf-8')
+
+        _bytes = bytearray()
+
+        _bytes.extend(oper_bytes)
+        _bytes.extend(collection_name_len_encoded)
+        _bytes.extend(collection_name_bytes)
+        _bytes.extend(doc_id_bytes)
+        _bytes.extend(b'\x00')
+
+        doc_bytes = send_message_to(
+            (self._addr, self._port), _bytes, expect_response=True
+        )
+
+        doc = doc_bytes.decode('utf-8')
+        res = Document(doc)
+        return res
