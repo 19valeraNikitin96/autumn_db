@@ -2,8 +2,9 @@ import socket
 import threading
 
 from autumn_db import DocumentId
-from autumn_db.autumn_db import DBCoreEngine, DBOperationEngine, CreateOperation, ReadOperation
-from db_driver import DRIVER_COLLECTION_NAME_LENGTH_BYTES as COLLECTION_NAME_LENGTH_BYTES, DRIVER_OPERATION_LENGTH
+from autumn_db.autumn_db import DBCoreEngine, DBOperationEngine, CreateOperation, ReadOperation, UpdateOperation
+from db_driver import DRIVER_COLLECTION_NAME_LENGTH_BYTES as COLLECTION_NAME_LENGTH_BYTES, DRIVER_OPERATION_LENGTH, \
+    DRIVER_DOCUMENT_ID_LENGTH
 from db_driver import DRIVER_BYTEORDER as BYTEORDER
 from db_driver import DBNetworkOperation as DBOperation
 
@@ -84,9 +85,35 @@ class ClientEndpoint:
                 connection.sendall(_response_bytes)
 
             if DBOperation.UPDATE_DOC.value == oper:
-                pass
+                oper = self._map_to_update_operation(received)
+                self._db_opers.add_operation(oper)
 
             if DBOperation.DELETE_DOC.value == oper:
                 pass
 
             connection.close()
+
+    @staticmethod
+    def _map_to_update_operation(received: bytes):
+        # UPDATE MESSAGE format
+        # |OpCode|Collection name length|Collection name|Document ID|   Data   |
+        #  1byte        1byte               1-255bytes     26bytes     Xbytes
+
+        collection_name_length_bytes = received[:COLLECTION_NAME_LENGTH_BYTES:1]
+        received = received[COLLECTION_NAME_LENGTH_BYTES::]
+
+        collection_name_length = int.from_bytes(collection_name_length_bytes, BYTEORDER, signed=False)
+        collection_name_bytes = received[:collection_name_length:1]
+        collection_name = collection_name_bytes.decode('utf-8')
+
+        received = received[collection_name_length::]
+
+        doc_id_bytes = received[:DRIVER_DOCUMENT_ID_LENGTH:]
+        doc_id = doc_id_bytes.decode('utf-8')
+        doc_id = DocumentId(doc_id)
+
+        received = received[DRIVER_DOCUMENT_ID_LENGTH::]
+        doc_str = received.decode('utf-8')
+
+        oper = UpdateOperation(collection_name, doc_id, doc_str)
+        return oper

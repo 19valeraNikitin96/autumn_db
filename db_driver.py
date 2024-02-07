@@ -9,6 +9,7 @@ DRIVER_OPERATION_LENGTH = 1
 DRIVER_COLLECTION_NAME_LENGTH_BYTES = 1
 DRIVER_COLLECTION_NAME_LENGTH_BYTES_MAX = 255
 DRIVER_BYTEORDER = 'big'
+DRIVER_DOCUMENT_ID_LENGTH = 26
 
 
 class DBNetworkOperation(Enum):
@@ -141,3 +142,27 @@ class DBDriver:
         doc = doc_bytes.decode('utf-8')
         res = Document(doc)
         return res
+
+    def update_document(self, collection: CollectionName, doc_id: DocumentId, doc: Document):
+        oper_bytes = DBNetworkOperation.UPDATE_DOC.value.to_bytes(DRIVER_OPERATION_LENGTH, DRIVER_BYTEORDER,
+                                                                signed=False)
+
+        collection_name_bytes = collection.name.encode('utf-8')
+
+        collection_name_len = len(collection_name_bytes)
+        collection_name_len_encoded = collection_name_len.to_bytes(DRIVER_COLLECTION_NAME_LENGTH_BYTES,
+                                                                   DRIVER_BYTEORDER, signed=False)
+
+        doc_id_bytes = str(doc_id).encode('utf-8')
+
+        _bytes = bytearray()
+
+        _bytes.extend(oper_bytes)
+        _bytes.extend(collection_name_len_encoded)
+        _bytes.extend(collection_name_bytes)
+        _bytes.extend(doc_id_bytes)
+        _bytes.extend(doc.document.encode('utf-8'))
+
+        send_message_to(
+            (self._addr, self._port), _bytes
+        )
