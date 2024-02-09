@@ -1,12 +1,16 @@
+import json
+import os
 import socket
 import threading
 
 from autumn_db import DocumentId
 from autumn_db.autumn_db import DBCoreEngine, DBOperationEngine, CreateOperation, ReadOperation, UpdateOperation
+from autumn_db.event_bus import EventBus
+from autumn_db.event_bus.active_anti_entropy import AAEConfig, ActiveAntiEntropy
 from db_driver import DRIVER_COLLECTION_NAME_LENGTH_BYTES as COLLECTION_NAME_LENGTH_BYTES, DRIVER_OPERATION_LENGTH, \
-    DRIVER_DOCUMENT_ID_LENGTH
+    DRIVER_DOCUMENT_ID_LENGTH, DocumentOperation
 from db_driver import DRIVER_BYTEORDER as BYTEORDER
-from db_driver import DBNetworkOperation as DBOperation
+from db_driver import DocumentOperation as DBOperation
 
 
 # MESSAGE format
@@ -18,9 +22,16 @@ class ClientEndpoint:
     def __init__(self, port: int, db_core: DBCoreEngine):
         self._db_core = db_core
 
+        conf = self._read_aae_config()
+        aae = ActiveAntiEntropy(conf, db_core)
+
+        threading.Thread(target=aae.processing, args=()).start()
+
         self._db_opers = DBOperationEngine(db_core)
         th = threading.Thread(target=self._db_opers.processing, args=())
         th.start()
+
+        self._db_opers.event_bus.subscribe(DocumentOperation.UPDATE_DOC, aae.callback)
 
         self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._port = port
@@ -28,6 +39,17 @@ class ClientEndpoint:
             ('0.0.0.0', port)
         )
         self._socket.listen()
+
+    def _read_aae_config(self) -> AAEConfig:
+        filename = os.environ['AAE_CONFIG_NAME']
+
+        with open(f'{filename}.json', 'r') as c:
+            config_content = c.read()
+
+        config = json.loads(config_content)
+
+        res = AAEConfig(**config)
+        return res
 
     def processing(self):
         while True:

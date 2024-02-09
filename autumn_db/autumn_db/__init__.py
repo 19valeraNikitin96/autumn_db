@@ -7,6 +7,8 @@ from queue import Queue
 from autumn_db import DocumentId, DOC_ID_LENGTH
 from autumn_db.data_storage.collection import CollectionOperations
 from autumn_db.data_storage.collection.impl import CollectionOperationsImpl
+from autumn_db.event_bus import EventBus, DocumentOrientedEvent
+from db_driver import DocumentOperation, CollectionName
 
 
 class DBOperationType(Enum):
@@ -201,6 +203,16 @@ class DBOperationEngine:
 
         self._is_stopped = False
 
+        self._event_bus = EventBus()
+
+    @property
+    def event_bus(self) -> EventBus:
+        return self._event_bus
+
+    @property
+    def db_core(self) -> DBCoreEngine:
+        return self._db_core_engine
+
     def add_operation(self, operation: DBOperation):
         if operation.operation_type == DBOperationType.CREATE:
             self._create_queue.put(operation)
@@ -217,27 +229,30 @@ class DBOperationEngine:
     def processing(self):
         while not self._is_stopped:
             deleted_per_iteration = set()
-            while self._delete_queue.qsize() > 0:
+            if self._delete_queue.qsize() > 0:
                 del_operation: DeleteOperation = self._delete_queue.get()
 
                 self._handle_delete_operation(del_operation)
                 deleted_per_iteration.add(del_operation.document_id)
 
-            while self._read_queue.qsize() > 0:
+            if self._read_queue.qsize() > 0:
                 read_operation: ReadOperation = self._read_queue.get()
                 if read_operation.document_id in deleted_per_iteration:
                     continue
 
                 self._handle_read_operation(read_operation)
 
-            while self._update_queue.qsize() > 0:
+            if self._update_queue.qsize() > 0:
                 update_operation: UpdateOperation = self._update_queue.get()
                 if update_operation.document_id in deleted_per_iteration:
                     continue
 
-                self._handle_update_operation(update_operation)
+                try:
+                    self._handle_update_operation(update_operation)
+                except:
+                    self._update_queue.put(update_operation)
 
-            while self._create_queue.qsize() > 0:
+            if self._create_queue.qsize() > 0:
                 create_operation: CreateOperation = self._create_queue.get()
 
                 self._handle_create_operation(create_operation)
@@ -253,10 +268,17 @@ class DBOperationEngine:
 
         filename = str(operation.document_id)
         metadata_operator = collection.get_metadata_operator(filename)
+
+        if metadata_operator.is_frozen():
+            raise Exception(f"Cannot update while document is frozen")
+
         metadata_operator.set_updated_at(datetime.datetime.utcnow())
 
         operator = collection.get_document_operator(filename)
         operator.update(operation.data)
+
+        ev = DocumentOrientedEvent(CollectionName(operation.collection), DocumentOperation.UPDATE_DOC, DocumentId(filename))
+        self.event_bus.publish(DocumentOperation.UPDATE_DOC, ev)
 
     def _handle_read_operation(self, operation: ReadOperation):
         collection: CollectionOperations = self._collections[operation.collection]

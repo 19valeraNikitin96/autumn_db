@@ -12,12 +12,14 @@ DRIVER_BYTEORDER = 'big'
 DRIVER_DOCUMENT_ID_LENGTH = 26
 
 
-class DBNetworkOperation(Enum):
+class DocumentOperation(Enum):
     CREATE_DOC = 1
     UPDATE_DOC = 2
     DELETE_DOC = 3
     READ_DOC = 4
 
+
+class CollectionOperation(Enum):
     CREATE_COLLECTION = 11
     DELETE_COLLECTION = 12
 
@@ -83,7 +85,7 @@ class DBDriver:
 
     def create_document(self, collection: CollectionName, doc: Document):
 
-        oper_bytes = DBNetworkOperation.CREATE_DOC.value.to_bytes(DRIVER_OPERATION_LENGTH, DRIVER_BYTEORDER, signed=False)
+        oper_bytes = DocumentOperation.CREATE_DOC.value.to_bytes(DRIVER_OPERATION_LENGTH, DRIVER_BYTEORDER, signed=False)
 
         collection_name_bytes = collection.name.encode('utf-8')
 
@@ -116,8 +118,8 @@ class DBDriver:
         return doc_id
 
     def read_document(self, collection: CollectionName, doc_id: DocumentId):
-        oper_bytes = DBNetworkOperation.READ_DOC.value.to_bytes(DRIVER_OPERATION_LENGTH, DRIVER_BYTEORDER,
-                                                                  signed=False)
+        oper_bytes = DocumentOperation.READ_DOC.value.to_bytes(DRIVER_OPERATION_LENGTH, DRIVER_BYTEORDER,
+                                                               signed=False)
 
         collection_name_bytes = collection.name.encode('utf-8')
 
@@ -144,8 +146,8 @@ class DBDriver:
         return res
 
     def update_document(self, collection: CollectionName, doc_id: DocumentId, doc: Document):
-        oper_bytes = DBNetworkOperation.UPDATE_DOC.value.to_bytes(DRIVER_OPERATION_LENGTH, DRIVER_BYTEORDER,
-                                                                signed=False)
+        oper_bytes = DocumentOperation.UPDATE_DOC.value.to_bytes(DRIVER_OPERATION_LENGTH, DRIVER_BYTEORDER,
+                                                                 signed=False)
 
         collection_name_bytes = collection.name.encode('utf-8')
 

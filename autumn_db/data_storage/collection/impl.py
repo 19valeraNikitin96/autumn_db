@@ -4,7 +4,7 @@ import os
 import shutil
 
 from autumn_db.autumn_db import DocumentId
-from autumn_db.data_storage.collection import FileOperations, MetadataOperations, CollectionOperations, file_access
+from autumn_db.data_storage.collection import DocumentOperations, MetadataOperations, CollectionOperations, file_access
 
 
 class MetadataOperationsImpl(MetadataOperations):
@@ -45,7 +45,7 @@ class MetadataOperationsImpl(MetadataOperations):
         self._file_access.update(self._pathname, content)
 
 
-class FileOperationsImpl(FileOperations):
+class DocumentOperationsImpl(DocumentOperations):
 
     def create(self, file: str):
         self._file_access.create(self._pathname, file)
@@ -91,10 +91,10 @@ class CollectionOperationsImpl(CollectionOperations):
         file_access.delete(data_pathname)
         file_access.delete(metadata_pathname)
 
-    def get_document_operator(self, filename: str) -> FileOperations:
+    def get_document_operator(self, filename: str) -> DocumentOperations:
         pathname = os.path.join(self._full_path_to_collection, 'data', filename)
 
-        res = FileOperationsImpl(pathname)
+        res = DocumentOperationsImpl(pathname)
         return res
 
     def get_metadata_operator(self, filename: str) -> MetadataOperations:

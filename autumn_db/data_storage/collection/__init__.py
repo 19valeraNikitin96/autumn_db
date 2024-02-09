@@ -13,7 +13,7 @@ class Operations(object):
         self._file_access = file_access
 
 
-class FileOperations(Operations):
+class DocumentOperations(Operations):
 
     def create(self, file: str): ...
 
@@ -56,6 +56,6 @@ class CollectionOperations(object):
 
     def delete(self): ...
 
-    def get_document_operator(self, filename: str) -> FileOperations: ...
+    def get_document_operator(self, filename: str) -> DocumentOperations: ...
 
     def get_metadata_operator(self, filename: str) -> MetadataOperations: ...
