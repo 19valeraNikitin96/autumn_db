@@ -11,7 +11,7 @@ from algorithms import to_bytearray_from_values
 from algorithms.ph2 import PH2
 from algorithms.spectral_bloom_filter import SpectralBloomFilter
 from autumn_db import DocumentId
-from autumn_db.autumn_db import DBOperationEngine, DBCoreEngine
+from autumn_db.autumn_db import DBCoreEngine
 from autumn_db.data_storage.collection import CollectionOperations
 from autumn_db.event_bus import Event, Subscriber, DocumentOrientedEvent
 from db_driver import CollectionName, Document, DRIVER_COLLECTION_NAME_LENGTH_BYTES, DRIVER_BYTEORDER, \
