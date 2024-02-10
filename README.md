@@ -10,7 +10,7 @@ Usage examples:
 ```commandline
 mkdir test_holder
 ```
-3) create Active Anti-Entropy configuration file
+2) create Active Anti-Entropy configuration file
 ```
 echo '' > aae_conf_1.json
 ```
@@ -30,8 +30,8 @@ The content of config file
   "neighbors": []
 }
 ```
-4) create python module
-5) insert next code
+3) create python module
+4) insert next code
 ```
 os.environ['AAE_CONFIG_NAME'] = 'aae_conf_1'
 
@@ -41,8 +41,8 @@ db_core = DBCoreEngine(holder_name)
 endpoint = ClientEndpoint(50001, db_core)
 endpoint.processing()
 ```
-6) launch your module
-7) use DB driver to execute CRUD operations (db_driver.py file)
+5) launch your module
+6) use DB driver to execute CRUD operations (db_driver.py file)
 ```
 from autumn_db import DocumentId
 from db_driver import DBDriver, CollectionName, Document
