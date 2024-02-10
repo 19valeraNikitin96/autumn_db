@@ -312,8 +312,6 @@ class ActiveAntiEntropy(Subscriber):
                 ev: DocumentOrientedEvent = self._document_event_queue.get()
 
                 self._on_update_event(ev)
-                # remove this line!!!
-                self._document_event_queue.put(ev)
 
             self._snapshot_receiver.processing()
 
