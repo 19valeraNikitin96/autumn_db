@@ -91,6 +91,10 @@ class CollectionOperationsImpl(CollectionOperations):
         file_access.delete(data_pathname)
         file_access.delete(metadata_pathname)
 
+    def document_exists(self, filename: str) -> bool:
+        path = os.path.join(self._full_path_to_collection, 'data', filename)
+        return os.path.isfile(path)
+
     def get_document_operator(self, filename: str) -> DocumentOperations:
         pathname = os.path.join(self._full_path_to_collection, 'data', filename)
 

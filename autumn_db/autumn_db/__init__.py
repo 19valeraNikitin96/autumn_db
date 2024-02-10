@@ -263,6 +263,10 @@ class DBOperationEngine:
         doc_id = str(operation.document_id)
         collection.create_document(doc_id, operation.data)
 
+        ev = DocumentOrientedEvent(CollectionName(operation.collection), DocumentOperation.CREATE_DOC,
+                                   DocumentId(doc_id))
+        self.event_bus.publish(DocumentOperation.CREATE_DOC, ev)
+
     def _handle_update_operation(self, operation: UpdateOperation):
         collection: CollectionOperations = self._collections[operation.collection]
 

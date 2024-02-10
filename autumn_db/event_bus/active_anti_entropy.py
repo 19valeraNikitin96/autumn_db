@@ -311,9 +311,44 @@ class ActiveAntiEntropy(Subscriber):
             if self._document_event_queue.qsize() > 0:
                 ev: DocumentOrientedEvent = self._document_event_queue.get()
 
-                self._on_update_event(ev)
+                if ev.event_code == DocumentOperation.UPDATE_DOC.value:
+                    self._on_update_event(ev)
+
+                if ev.event_code == DocumentOperation.CREATE_DOC.value:
+                    self._on_create_event(ev)
 
             self._snapshot_receiver.processing()
+
+    def _on_create_event(self, ev: DocumentOrientedEvent):
+        db_collection: CollectionOperations = self._db_core.collections[ev.collection.name]
+        filename = str(ev.document_id)
+        metadata_oper = db_collection.get_metadata_operator(filename)
+        data_oper = db_collection.get_document_operator(filename)
+
+        timestamp = metadata_oper.get_updated_at()
+
+        bytes_to_send = bytearray()
+        collection_name_encoded = ev.collection.name.encode('utf-8')
+        collection_name_len = len(collection_name_encoded)
+        collection_name_len_encoded = collection_name_len.to_bytes(DRIVER_COLLECTION_NAME_LENGTH_BYTES,
+                                                                   DRIVER_BYTEORDER, signed=False)
+        doc_id_encoded = str(ev.document_id).encode('utf-8')
+        updated_at_encoded = datetime.strftime(timestamp, DocumentId.UTC_FORMAT).encode('utf-8')
+
+        doc = data_oper.read()
+
+        bytes_to_send.extend(collection_name_len_encoded)
+        bytes_to_send.extend(collection_name_encoded)
+        bytes_to_send.extend(doc_id_encoded)
+        bytes_to_send.extend(updated_at_encoded)
+        bytes_to_send.extend(doc.encode('utf-8'))
+
+        for neigh in self._conf.neighbors:
+            addr_port = (neigh.document_receiver.addr, neigh.document_receiver.port)
+            send_message_to(
+                addr_port,
+                bytes_to_send
+            )
 
     def _on_update_event(self, ev: DocumentOrientedEvent):
         doc_id = str(ev.document_id)
@@ -421,10 +456,15 @@ class ActiveAntiEntropy(Subscriber):
         return collection_name, doc_id, doc, updated_at
 
     def _write_doc(self, collection: CollectionName, doc_id: DocumentId, doc: Document, updated_at: datetime):
-
         db_collection: CollectionOperations = self._db_core.collections[collection.name]
         filename = str(doc_id)
         metadata_oper = db_collection.get_metadata_operator(filename)
+
+        if not db_collection.document_exists(filename):
+            db_collection.create_document(filename, doc.document)
+            metadata_oper.set_updated_at(updated_at)
+            return
+
         metadata_oper.set_is_frozen(True)
 
         local_updated_at = metadata_oper.get_updated_at()

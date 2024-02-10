@@ -5,7 +5,6 @@ import threading
 
 from autumn_db import DocumentId
 from autumn_db.autumn_db import DBCoreEngine, DBOperationEngine, CreateOperation, ReadOperation, UpdateOperation
-from autumn_db.event_bus import EventBus
 from autumn_db.event_bus.active_anti_entropy import AAEConfig, ActiveAntiEntropy
 from db_driver import DRIVER_COLLECTION_NAME_LENGTH_BYTES as COLLECTION_NAME_LENGTH_BYTES, DRIVER_OPERATION_LENGTH, \
     DRIVER_DOCUMENT_ID_LENGTH, DocumentOperation
@@ -32,6 +31,7 @@ class ClientEndpoint:
         th.start()
 
         self._db_opers.event_bus.subscribe(DocumentOperation.UPDATE_DOC, aae.callback)
+        self._db_opers.event_bus.subscribe(DocumentOperation.CREATE_DOC, aae.callback)
 
         self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._port = port
