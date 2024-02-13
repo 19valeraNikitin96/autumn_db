@@ -1,4 +1,5 @@
 import json
+import logging
 import socket
 from dataclasses import dataclass
 from datetime import datetime
@@ -307,6 +308,8 @@ class ActiveAntiEntropy(Subscriber):
             if doc_and_metadata is not None:
                 collection, doc_id, doc, updated_at = self._parse_document_and_metadata(doc_and_metadata)
                 self._write_doc(collection, doc_id, doc, updated_at)
+                ev = DocumentOrientedEvent(collection, DocumentOperation.CREATE_DOC, doc_id)
+                self._on_create_event(ev)
 
             if self._document_event_queue.qsize() > 0:
                 ev: DocumentOrientedEvent = self._document_event_queue.get()

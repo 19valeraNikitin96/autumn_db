@@ -44,6 +44,10 @@ class CollectionName:
 class Document:
 
     def __init__(self, doc: str):
+        if doc == 'None':
+            self._doc = None
+            return
+
         self._validate(doc)
         self._doc = doc
 

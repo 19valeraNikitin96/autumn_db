@@ -68,6 +68,9 @@ class ReadOperation(DocumentIdBasedOperation):
         if self._response is not None:
             raise Exception('Setting second time is forbidden')
 
+        if data is None:
+            data = str(data)
+
         self._response = data
         self.finished()
 
@@ -290,7 +293,11 @@ class DBOperationEngine:
         filename = str(operation.document_id)
         operator = collection.get_document_operator(filename)
 
-        data = operator.read()
+        try:
+            data = operator.read()
+        except:
+            data = None
+
         operation.set_data(data)
 
     def _handle_delete_operation(self, operation: DeleteOperation):
