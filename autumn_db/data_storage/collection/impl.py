@@ -2,6 +2,7 @@ import datetime
 import json
 import os
 import shutil
+import threading
 
 from autumn_db.autumn_db import DocumentId
 from autumn_db.data_storage.collection import DocumentOperations, MetadataOperations, CollectionOperations, file_access
@@ -61,6 +62,10 @@ class DocumentOperationsImpl(DocumentOperations):
 
 class CollectionOperationsImpl(CollectionOperations):
 
+    def __init__(self, name: str, data_holder_path: str = None):
+        super().__init__(name, data_holder_path)
+        self._lock = threading.Lock()
+
     def create(self):
         path_to_data = os.path.join(self._full_path_to_collection, 'data')
         path_to_metadata = os.path.join(self._full_path_to_collection, 'metadata')
@@ -95,14 +100,51 @@ class CollectionOperationsImpl(CollectionOperations):
         path = os.path.join(self._full_path_to_collection, 'data', filename)
         return os.path.isfile(path)
 
-    def get_document_operator(self, filename: str) -> DocumentOperations:
+    def _get_document_operator(self, filename: str) -> DocumentOperations:
         pathname = os.path.join(self._full_path_to_collection, 'data', filename)
 
         res = DocumentOperationsImpl(pathname)
         return res
 
-    def get_metadata_operator(self, filename: str) -> MetadataOperations:
+    def _get_metadata_operator(self, filename: str) -> MetadataOperations:
         pathname = os.path.join(self._full_path_to_collection, 'metadata', filename)
 
         res = MetadataOperationsImpl(pathname)
         return res
+
+    def update_document(self, doc_id: DocumentId, data: str, updated_at: datetime.datetime = None):
+        if updated_at is None:
+            updated_at = datetime.datetime.utcnow()
+
+        doc_id = str(doc_id)
+        doc_oper = self._get_document_operator(doc_id)
+        metadata_oper = self._get_metadata_operator(doc_id)
+
+        with self._lock:
+            doc_oper.update(data)
+            metadata_oper.set_updated_at(updated_at)
+
+    def get_updated_at(self, doc_id: DocumentId) -> datetime.datetime:
+        doc_id = str(doc_id)
+        metadata_oper = self._get_metadata_operator(doc_id)
+
+        with self._lock:
+            updated_at = metadata_oper.get_updated_at()
+
+        return updated_at
+
+    def set_updated_at(self, doc_id: DocumentId, updated_at: datetime.datetime):
+        doc_id = str(doc_id)
+        metadata_oper = self._get_metadata_operator(doc_id)
+
+        with self._lock:
+            metadata_oper.set_updated_at(updated_at)
+
+    def read_document(self, doc_id: DocumentId) -> str:
+        doc_id = str(doc_id)
+        doc_oper = self._get_document_operator(doc_id)
+
+        with self._lock:
+            data = doc_oper.read()
+
+        return data
