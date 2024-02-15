@@ -329,15 +329,19 @@ class ActiveAntiEntropy(Subscriber):
             return
 
     def processing(self):
+        def process_queue():
+            while self._document_event_queue.qsize() > 0:
+                ev: DocumentOrientedEvent = self._document_event_queue.get()
+                self._broadcast_document(ev.document_id, self._db_core.collections[ev.collection.name])
+
         while True:
             for collection in self._db_core.collections.values():
                 for doc_id in collection.doc_ids():
-
-                    while self._document_event_queue.qsize() > 0:
-                        ev: DocumentOrientedEvent = self._document_event_queue.get()
-                        self._broadcast_document(ev.document_id, self._db_core.collections[ev.collection.name])
-
-                    self._broadcast(DocumentId(doc_id), collection)
+                    process_queue()
+                    try:
+                        self._broadcast(DocumentId(doc_id), collection)
+                    except:
+                        pass
 
     def _send_document(self, receiver_addr_port: tuple, collection: CollectionName, doc_id: DocumentId, doc: Document, updated_at: datetime):
         bytes_to_send = bytearray()
@@ -413,44 +417,8 @@ class ActiveAntiEntropy(Subscriber):
                 local_timestamp = collection.get_updated_at(doc_id)
                 if local_timestamp > timestamp:
                     recv_doc_addr_port = (neigh.document_receiver.addr, neigh.document_receiver.port)
-                    self._send_document(recv_doc_addr_port, CollectionName(collection.name), doc_id, Document(data), local_timestamp)
-
-    # def _on_create_event(self, ev: DocumentOrientedEvent):
-    #     db_collection: CollectionOperations = self._db_core.collections[ev.collection.name]
-    #
-    #     timestamp = db_collection.get_updated_at(ev.document_id)
-    #
-    #     bytes_to_send = bytearray()
-    #     collection_name_encoded = ev.collection.name.encode('utf-8')
-    #     collection_name_len = len(collection_name_encoded)
-    #     collection_name_len_encoded = collection_name_len.to_bytes(DRIVER_COLLECTION_NAME_LENGTH_BYTES,
-    #                                                                DRIVER_BYTEORDER, signed=False)
-    #     doc_id_encoded = str(ev.document_id).encode('utf-8')
-    #     updated_at_encoded = datetime.strftime(timestamp, DocumentId.UTC_FORMAT).encode('utf-8')
-    #
-    #     doc = db_collection.read_document(ev.document_id)
-    #
-    #     bytes_to_send.extend(collection_name_len_encoded)
-    #     bytes_to_send.extend(collection_name_encoded)
-    #     bytes_to_send.extend(doc_id_encoded)
-    #     bytes_to_send.extend(updated_at_encoded)
-    #     bytes_to_send.extend(doc.encode('utf-8'))
-
-        # for neigh in self._conf.neighbors:
-        #     addr_port = (neigh.document_receiver.addr, neigh.document_receiver.port)
-        #
-        #     send_message_to(
-        #         addr_port,
-        #         bytes_to_send
-        #     )
-
-    # def _on_update_event(self, ev: DocumentOrientedEvent):
-    #     doc_id = str(ev.document_id)
-    #     collection: CollectionOperations = self._db_core.collections[ev.collection.name]
-
-
-
-
+                    data, updated_at = collection.read_document_with_updated_at(doc_id)
+                    self._send_document(recv_doc_addr_port, CollectionName(collection.name), doc_id, Document(data), updated_at)
 
     @staticmethod
     def _parse_document_and_metadata(src: bytearray):

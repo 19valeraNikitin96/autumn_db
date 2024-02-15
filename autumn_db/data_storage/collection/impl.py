@@ -1,8 +1,10 @@
 import datetime
 import json
 import os
+import random
 import shutil
 import threading
+from time import sleep
 
 from autumn_db.autumn_db import DocumentId
 from autumn_db.data_storage.collection import DocumentOperations, MetadataOperations, CollectionOperations, file_access
@@ -165,6 +167,6 @@ class CollectionOperationsImpl(CollectionOperations):
 
     def doc_ids(self) -> set:
         with self._lock:
-            for dirpath, _, filenames in os.walk(self._full_path_to_collection):
+            for dirpath, _, filenames in os.walk(os.path.join(self._full_path_to_collection, 'data')):
                 res = set(filenames)
                 return res
