@@ -75,14 +75,17 @@ class CollectionOperationsImpl(CollectionOperations):
     def delete(self):
         shutil.rmtree(self._full_path_to_collection)
 
-    def create_document(self, filename: str, data: str):
+    def create_document(self, filename: str, data: str, updated_at: datetime.datetime = None):
+        if updated_at is None:
+            updated_at = datetime.datetime.utcnow()
+
         data_pathname = os.path.join(self._full_path_to_collection, 'data', filename)
         metadata_pathname = os.path.join(self._full_path_to_collection, 'metadata', filename)
 
         file_access.create(data_pathname, data)
 
         metadata_content = {
-            MetadataOperationsImpl.UPDATED_AT_KEY: datetime.datetime.utcnow().strftime(
+            MetadataOperationsImpl.UPDATED_AT_KEY: updated_at.strftime(
                     DocumentId.UTC_FORMAT),
             MetadataOperationsImpl.IS_FROZEN_KEY: False
         }
@@ -148,3 +151,20 @@ class CollectionOperationsImpl(CollectionOperations):
             data = doc_oper.read()
 
         return data
+
+    def read_document_with_updated_at(self, doc_id: DocumentId) -> tuple:
+        doc_id = str(doc_id)
+        doc_oper = self._get_document_operator(doc_id)
+        metadata_oper = self._get_metadata_operator(doc_id)
+
+        with self._lock:
+            data = doc_oper.read()
+            updated_at = metadata_oper.get_updated_at()
+
+        return data, updated_at
+
+    def doc_ids(self) -> set:
+        with self._lock:
+            for dirpath, _, filenames in os.walk(self._full_path_to_collection):
+                res = set(filenames)
+                return res

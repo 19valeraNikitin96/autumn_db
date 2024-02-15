@@ -245,6 +245,11 @@ class DBOperationEngine:
 
                 self._handle_read_operation(read_operation)
 
+            if self._create_queue.qsize() > 0:
+                create_operation: CreateOperation = self._create_queue.get()
+
+                self._handle_create_operation(create_operation)
+
             if self._update_queue.qsize() > 0:
                 update_operation: UpdateOperation = self._update_queue.get()
                 if update_operation.document_id in deleted_per_iteration:
@@ -252,13 +257,8 @@ class DBOperationEngine:
 
                 try:
                     self._handle_update_operation(update_operation)
-                except:
+                except Exception as e:
                     self._update_queue.put(update_operation)
-
-            if self._create_queue.qsize() > 0:
-                create_operation: CreateOperation = self._create_queue.get()
-
-                self._handle_create_operation(create_operation)
 
     def _handle_create_operation(self, operation: CreateOperation):
         collection: CollectionOperations = self._collections[operation.collection]
@@ -274,15 +274,8 @@ class DBOperationEngine:
         collection: CollectionOperations = self._collections[operation.collection]
 
         filename = str(operation.document_id)
-        metadata_operator = collection.get_metadata_operator(filename)
 
-        if metadata_operator.is_frozen():
-            raise Exception(f"Cannot update while document is frozen")
-
-        metadata_operator.set_updated_at(datetime.datetime.utcnow())
-
-        operator = collection.get_document_operator(filename)
-        operator.update(operation.data)
+        collection.update_document(operation.document_id, operation.data)
 
         ev = DocumentOrientedEvent(CollectionName(operation.collection), DocumentOperation.UPDATE_DOC, DocumentId(filename))
         self.event_bus.publish(DocumentOperation.UPDATE_DOC, ev)
@@ -290,11 +283,8 @@ class DBOperationEngine:
     def _handle_read_operation(self, operation: ReadOperation):
         collection: CollectionOperations = self._collections[operation.collection]
 
-        filename = str(operation.document_id)
-        operator = collection.get_document_operator(filename)
-
         try:
-            data = operator.read()
+            data = collection.read_document(operation.document_id)
         except:
             data = None
 

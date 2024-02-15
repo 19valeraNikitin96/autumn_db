@@ -1,8 +1,9 @@
 import json
 import logging
 import socket
+import threading
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from queue import Queue
 
@@ -12,8 +13,9 @@ from algorithms import to_bytearray_from_values
 from algorithms.ph2 import PH2
 from algorithms.spectral_bloom_filter import SpectralBloomFilter
 from autumn_db import DocumentId
-from autumn_db.autumn_db import DBCoreEngine
+from autumn_db.autumn_db import DBCoreEngine, DBOperationEngine
 from autumn_db.data_storage.collection import CollectionOperations
+from autumn_db.data_storage.collection.impl import CollectionOperationsImpl
 from autumn_db.event_bus import Event, Subscriber, DocumentOrientedEvent
 from db_driver import CollectionName, Document, DRIVER_COLLECTION_NAME_LENGTH_BYTES, DRIVER_BYTEORDER, \
     DRIVER_DOCUMENT_ID_LENGTH, CollectionOperation, DocumentOperation, send_message_to
@@ -222,6 +224,20 @@ class AAEAnswererWorker:
         payload = payload[1::1]
         operation_type = AAEOperationType.get_by_value(oper_code)
 
+        def send_timestamp(timestamp: datetime):
+            s_timestamp = datetime.strftime(timestamp, DocumentId.UTC_FORMAT)
+            b_timestamp = s_timestamp.encode('utf-8')
+
+            _bytearray = bytearray()
+            parts = [
+                AAEAnswererWorker.SENDING_TIMESTAMP_PAYLOAD_PART,
+                b_timestamp,
+            ]
+            for part in parts:
+                _bytearray.extend(part)
+
+            self._socket.sendto(_bytearray, addr_port)
+
         if operation_type == AAEOperationType.SENDING_SNAPSHOT:
             collection_name_length_bytes = payload[:DRIVER_COLLECTION_NAME_LENGTH_BYTES:1]
             payload = payload[DRIVER_COLLECTION_NAME_LENGTH_BYTES::]
@@ -239,9 +255,16 @@ class AAEAnswererWorker:
             snapshot = payload[::]
 
             collection: CollectionOperations = self._db_core.collections[collection_name_str]
-            operator = collection.get_document_operator(doc_id)
 
-            data = operator.read()
+            try:
+                data = collection.read_document(DocumentId(doc_id))
+            except Exception as e:
+                logging.warning(e)
+                logging.warning(f'Could not read {doc_id}')
+                fake_timestamp = datetime(1970, 1, 1, 0, 0, 0, 0, tzinfo=timezone.utc)
+                send_timestamp(fake_timestamp)
+                return
+
             _json = json.loads(data)
 
             _bytearray = to_bytearray_from_values(_json)
@@ -252,33 +275,20 @@ class AAEAnswererWorker:
             local_snapshot = Snapshot(sbf, ph2)
 
             if bytes(local_snapshot.get()) == snapshot:
-                print(f"Sent to {addr_port} TERMINATION")
                 self._socket.sendto(AAEAnswererWorker.TERMINATION_PAYLOAD, addr_port)
                 return None
 
-            metadata = collection.get_metadata_operator(doc_id)
-            local_timestamp = metadata.get_updated_at()
-
-            s_timestamp = datetime.strftime(local_timestamp, DocumentId.UTC_FORMAT)
-            b_timestamp = s_timestamp.encode('utf-8')
-
-            _bytearray = bytearray()
-            parts = [
-                AAEAnswererWorker.SENDING_TIMESTAMP_PAYLOAD_PART,
-                b_timestamp,
-            ]
-            for part in parts:
-                _bytearray.extend(part)
-
-            print(f"Sent to {addr_port} SENDING_TIMESTAMP")
-            self._socket.sendto(_bytearray, addr_port)
+            local_timestamp = collection.get_updated_at(DocumentId(doc_id))
+            send_timestamp(local_timestamp)
 
 
 class ActiveAntiEntropy(Subscriber):
 
-    def __init__(self, config: AAEConfig, db_core: DBCoreEngine):
+    def __init__(self, config: AAEConfig, db_engine: DBOperationEngine):
         self._conf = config
-        self._db_core = db_core
+
+        self._db_engine = db_engine
+        self._db_core = db_engine.db_core
 
         self._doc_receiver = DocumentReceiver(self._conf.current.document_receiver.port)
         self._snapshot_receiver = AAEAnswererWorker(
@@ -289,8 +299,25 @@ class ActiveAntiEntropy(Subscriber):
         self._document_event_queue = Queue()
         self._collection_event_queue = Queue()
 
+        def snapshot_receiver_handler():
+            while True:
+                self._snapshot_receiver.processing()
+
+        receiver = threading.Thread(target=snapshot_receiver_handler, args=())
+        receiver.start()
+
+        def document_receiver_handler():
+            while True:
+                doc_and_metadata = self._doc_receiver.get_document_and_metadata()
+                if doc_and_metadata is not None:
+                    collection, doc_id, doc, updated_at = self._parse_document_and_metadata(doc_and_metadata)
+                    self._on_received_doc(collection, doc_id, doc, updated_at)
+
+        doc_receiver = threading.Thread(target=document_receiver_handler, args=())
+        doc_receiver.start()
+
     def callback(self, event: Event):
-        doc_opers = [oper.value for oper in list(CollectionOperation)]
+        doc_opers = [oper.value for oper in list(DocumentOperation) + list(CollectionOperation)]
 
         if event.event_code in doc_opers:
             self._document_event_queue.put(event)
@@ -298,69 +325,55 @@ class ActiveAntiEntropy(Subscriber):
 
         collection_opers = [oper.value for oper in list(DocumentOperation)]
         if event.event_code in collection_opers:
-            self._document_event_queue.put(event)
+            # self._collection_event_queue.put(event)
             return
 
     def processing(self):
         while True:
+            for collection in self._db_core.collections.values():
+                for doc_id in collection.doc_ids():
 
-            doc_and_metadata = self._doc_receiver.get_document_and_metadata()
-            if doc_and_metadata is not None:
-                collection, doc_id, doc, updated_at = self._parse_document_and_metadata(doc_and_metadata)
-                self._write_doc(collection, doc_id, doc, updated_at)
-                ev = DocumentOrientedEvent(collection, DocumentOperation.CREATE_DOC, doc_id)
-                self._on_create_event(ev)
+                    while self._document_event_queue.qsize() > 0:
+                        ev: DocumentOrientedEvent = self._document_event_queue.get()
+                        self._broadcast_document(ev.document_id, self._db_core.collections[ev.collection.name])
 
-            if self._document_event_queue.qsize() > 0:
-                ev: DocumentOrientedEvent = self._document_event_queue.get()
+                    self._broadcast(DocumentId(doc_id), collection)
 
-                if ev.event_code == DocumentOperation.UPDATE_DOC.value:
-                    self._on_update_event(ev)
-
-                if ev.event_code == DocumentOperation.CREATE_DOC.value:
-                    self._on_create_event(ev)
-
-            self._snapshot_receiver.processing()
-
-    def _on_create_event(self, ev: DocumentOrientedEvent):
-        db_collection: CollectionOperations = self._db_core.collections[ev.collection.name]
-        filename = str(ev.document_id)
-        metadata_oper = db_collection.get_metadata_operator(filename)
-        data_oper = db_collection.get_document_operator(filename)
-
-        timestamp = metadata_oper.get_updated_at()
-
+    def _send_document(self, receiver_addr_port: tuple, collection: CollectionName, doc_id: DocumentId, doc: Document, updated_at: datetime):
         bytes_to_send = bytearray()
-        collection_name_encoded = ev.collection.name.encode('utf-8')
+        collection_name_encoded = collection.name.encode('utf-8')
         collection_name_len = len(collection_name_encoded)
         collection_name_len_encoded = collection_name_len.to_bytes(DRIVER_COLLECTION_NAME_LENGTH_BYTES,
                                                                    DRIVER_BYTEORDER, signed=False)
-        doc_id_encoded = str(ev.document_id).encode('utf-8')
-        updated_at_encoded = datetime.strftime(timestamp, DocumentId.UTC_FORMAT).encode('utf-8')
-
-        doc = data_oper.read()
+        doc_id_encoded = str(doc_id).encode('utf-8')
+        updated_at_encoded = datetime.strftime(updated_at, DocumentId.UTC_FORMAT).encode('utf-8')
 
         bytes_to_send.extend(collection_name_len_encoded)
         bytes_to_send.extend(collection_name_encoded)
         bytes_to_send.extend(doc_id_encoded)
         bytes_to_send.extend(updated_at_encoded)
-        bytes_to_send.extend(doc.encode('utf-8'))
+        bytes_to_send.extend(doc.document.encode('utf-8'))
+
+        send_message_to(
+            receiver_addr_port,
+            bytes_to_send
+        )
+
+    def _broadcast_document(self, doc_id: DocumentId, collection: CollectionOperations):
+        data, updated_at = collection.read_document_with_updated_at(doc_id)
+        _json = json.loads(data)
 
         for neigh in self._conf.neighbors:
-            addr_port = (neigh.document_receiver.addr, neigh.document_receiver.port)
-            send_message_to(
-                addr_port,
-                bytes_to_send
+            self._send_document(
+                (neigh.document_receiver.addr, neigh.document_receiver.port),
+                CollectionName(collection.name),
+                doc_id,
+                Document(data),
+                updated_at
             )
 
-    def _on_update_event(self, ev: DocumentOrientedEvent):
-        doc_id = str(ev.document_id)
-
-        collection: CollectionOperations = self._db_core.collections[ev.collection.name]
-
-        operator = collection.get_document_operator(doc_id)
-
-        data = operator.read()
+    def _broadcast(self, doc_id: DocumentId, collection: CollectionOperations):
+        data = collection.read_document(doc_id)
         _json = json.loads(data)
 
         _bytearray = to_bytearray_from_values(_json)
@@ -369,25 +382,23 @@ class ActiveAntiEntropy(Subscriber):
         ph2 = calculate_ph2(_bytearray)
 
         snapshot = Snapshot(sbf, ph2)
-        check_snapshot = AAECheckSnapshot(ev.collection.name, doc_id, snapshot)
+        check_snapshot = AAECheckSnapshot(collection.name, str(doc_id), snapshot)
         b_check_snapshot = check_snapshot.get()
 
         for neigh in self._conf.neighbors:
+            receiver_addr_port = (neigh.snapshot_receiver.addr, neigh.snapshot_receiver.port)
+
             sock = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
 
-            sock.settimeout(3)
+            sock.settimeout(0.2)
 
-            receiver_addr_port = (neigh.snapshot_receiver.addr, neigh.snapshot_receiver.port)
-            print(f"Sent to {receiver_addr_port} AAECheckSnapshot")
             sock.sendto(b_check_snapshot,
                         receiver_addr_port
                         )
-            print(f'Socket to send AAECheckSnapshot {sock.getsockname()}')
 
             try:
                 payload, server_addr_port = sock.recvfrom(48)
             except socket.timeout:
-                print(f'Continue {sock.getsockname()}')
                 continue
             resp_type = AAEOperationType.get_by_value(payload[0])
 
@@ -399,30 +410,47 @@ class ActiveAntiEntropy(Subscriber):
                 s_timestamp = b_timestamp.decode()
                 timestamp = datetime.strptime(s_timestamp, DocumentId.UTC_FORMAT)
 
-                metadata = collection.get_metadata_operator(doc_id)
-                local_timestamp = metadata.get_updated_at()
-
+                local_timestamp = collection.get_updated_at(doc_id)
                 if local_timestamp > timestamp:
                     recv_doc_addr_port = (neigh.document_receiver.addr, neigh.document_receiver.port)
+                    self._send_document(recv_doc_addr_port, CollectionName(collection.name), doc_id, Document(data), local_timestamp)
 
-                    bytes_to_send = bytearray()
-                    collection_name_encoded = ev.collection.name.encode('utf-8')
-                    collection_name_len = len(collection_name_encoded)
-                    collection_name_len_encoded = collection_name_len.to_bytes(DRIVER_COLLECTION_NAME_LENGTH_BYTES,
-                                                                               DRIVER_BYTEORDER, signed=False)
-                    doc_id_encoded = doc_id.encode('utf-8')
-                    updated_at_encoded = datetime.strftime(local_timestamp, DocumentId.UTC_FORMAT).encode('utf-8')
+    # def _on_create_event(self, ev: DocumentOrientedEvent):
+    #     db_collection: CollectionOperations = self._db_core.collections[ev.collection.name]
+    #
+    #     timestamp = db_collection.get_updated_at(ev.document_id)
+    #
+    #     bytes_to_send = bytearray()
+    #     collection_name_encoded = ev.collection.name.encode('utf-8')
+    #     collection_name_len = len(collection_name_encoded)
+    #     collection_name_len_encoded = collection_name_len.to_bytes(DRIVER_COLLECTION_NAME_LENGTH_BYTES,
+    #                                                                DRIVER_BYTEORDER, signed=False)
+    #     doc_id_encoded = str(ev.document_id).encode('utf-8')
+    #     updated_at_encoded = datetime.strftime(timestamp, DocumentId.UTC_FORMAT).encode('utf-8')
+    #
+    #     doc = db_collection.read_document(ev.document_id)
+    #
+    #     bytes_to_send.extend(collection_name_len_encoded)
+    #     bytes_to_send.extend(collection_name_encoded)
+    #     bytes_to_send.extend(doc_id_encoded)
+    #     bytes_to_send.extend(updated_at_encoded)
+    #     bytes_to_send.extend(doc.encode('utf-8'))
 
-                    bytes_to_send.extend(collection_name_len_encoded)
-                    bytes_to_send.extend(collection_name_encoded)
-                    bytes_to_send.extend(doc_id_encoded)
-                    bytes_to_send.extend(updated_at_encoded)
-                    bytes_to_send.extend(data.encode('utf-8'))
+        # for neigh in self._conf.neighbors:
+        #     addr_port = (neigh.document_receiver.addr, neigh.document_receiver.port)
+        #
+        #     send_message_to(
+        #         addr_port,
+        #         bytes_to_send
+        #     )
 
-                    send_message_to(
-                        recv_doc_addr_port,
-                        bytes_to_send
-                    )
+    # def _on_update_event(self, ev: DocumentOrientedEvent):
+    #     doc_id = str(ev.document_id)
+    #     collection: CollectionOperations = self._db_core.collections[ev.collection.name]
+
+
+
+
 
     @staticmethod
     def _parse_document_and_metadata(src: bytearray):
@@ -441,7 +469,6 @@ class ActiveAntiEntropy(Subscriber):
 
         doc_id_bytes = src[:DRIVER_DOCUMENT_ID_LENGTH:]
         doc_id = doc_id_bytes.decode('utf-8')
-        print(doc_id)
         doc_id = DocumentId(doc_id)
 
         src = src[DRIVER_DOCUMENT_ID_LENGTH::]
@@ -458,24 +485,16 @@ class ActiveAntiEntropy(Subscriber):
 
         return collection_name, doc_id, doc, updated_at
 
-    def _write_doc(self, collection: CollectionName, doc_id: DocumentId, doc: Document, updated_at: datetime):
+    def _on_received_doc(self, collection: CollectionName, doc_id: DocumentId, doc: Document, updated_at: datetime):
         db_collection: CollectionOperations = self._db_core.collections[collection.name]
         filename = str(doc_id)
-        metadata_oper = db_collection.get_metadata_operator(filename)
 
         if not db_collection.document_exists(filename):
-            db_collection.create_document(filename, doc.document)
-            metadata_oper.set_updated_at(updated_at)
+            db_collection.create_document(filename, doc.document, updated_at)
             return
 
-        metadata_oper.set_is_frozen(True)
-
-        local_updated_at = metadata_oper.get_updated_at()
+        local_updated_at = db_collection.get_updated_at(doc_id)
         if local_updated_at >= updated_at:
             return
 
-        document_oper = db_collection.get_document_operator(filename)
-        document_oper.update(doc.document)
-
-        metadata_oper.set_updated_at(updated_at)
-        metadata_oper.set_is_frozen(False)
+        db_collection.update_document(doc_id, doc.document, updated_at)

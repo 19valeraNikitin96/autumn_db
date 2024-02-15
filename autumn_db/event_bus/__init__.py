@@ -49,6 +49,9 @@ class DocumentOrientedEvent(Event):
     def document_id(self) -> DocumentId:
         return self._doc_id
 
+    def __str__(self):
+        return f"DocumentOrientedEvent, {self.document_id},{self.collection}"
+
 
 class EventBus:
 

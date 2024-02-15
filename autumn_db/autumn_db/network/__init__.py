@@ -22,11 +22,11 @@ class ClientEndpoint:
         self._db_core = db_core
 
         conf = self._read_aae_config()
-        aae = ActiveAntiEntropy(conf, db_core)
+        self._db_opers = DBOperationEngine(db_core)
+        aae = ActiveAntiEntropy(conf, self._db_opers)
 
         threading.Thread(target=aae.processing, args=()).start()
 
-        self._db_opers = DBOperationEngine(db_core)
         th = threading.Thread(target=self._db_opers.processing, args=())
         th.start()
 
