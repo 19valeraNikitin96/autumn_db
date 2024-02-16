@@ -15,7 +15,6 @@ from algorithms.spectral_bloom_filter import SpectralBloomFilter
 from autumn_db import DocumentId
 from autumn_db.autumn_db import DBCoreEngine, DBOperationEngine
 from autumn_db.data_storage.collection import CollectionOperations
-from autumn_db.data_storage.collection.impl import CollectionOperationsImpl
 from autumn_db.event_bus import Event, Subscriber, DocumentOrientedEvent
 from db_driver import CollectionName, Document, DRIVER_COLLECTION_NAME_LENGTH_BYTES, DRIVER_BYTEORDER, \
     DRIVER_DOCUMENT_ID_LENGTH, CollectionOperation, DocumentOperation, send_message_to
@@ -329,15 +328,23 @@ class ActiveAntiEntropy(Subscriber):
             return
 
     def processing(self):
-        def process_queue():
+        def process_queue(acc: set):
+            by_doc_id = dict()
             while self._document_event_queue.qsize() > 0:
                 ev: DocumentOrientedEvent = self._document_event_queue.get()
+                by_doc_id[str(ev.document_id)] = ev
+
+            for ev in by_doc_id.values():
                 self._broadcast_document(ev.document_id, self._db_core.collections[ev.collection.name])
+                acc.add(ev.document_id)
 
         while True:
+            total_processed = set()
             for collection in self._db_core.collections.values():
                 for doc_id in collection.doc_ids():
-                    process_queue()
+                    process_queue(total_processed)
+                    if doc_id in total_processed:
+                        continue
                     try:
                         self._broadcast(DocumentId(doc_id), collection)
                     except:

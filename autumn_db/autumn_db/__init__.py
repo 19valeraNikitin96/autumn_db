@@ -1,4 +1,3 @@
-import datetime
 import json
 import os
 from enum import Enum
@@ -156,6 +155,8 @@ class DBCoreEngine:
             db_holder = os.getcwd()
 
         self._db_holder = db_holder
+        if not os.path.exists(self._db_holder):
+            os.mkdir(self._db_holder)
         self._collections = self._discover_existing()
 
     def create_collection(self, name: str):
@@ -169,6 +170,7 @@ class DBCoreEngine:
     def delete_collection(self, name: str):
         collection = self._collections[name]
         collection.delete()
+        del self._collections[name]
 
     def _discover_existing(self) -> dict:
         collections_candidates = [f for f in os.scandir(self._db_holder) if f.is_dir()]
