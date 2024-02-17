@@ -348,15 +348,6 @@ class ActiveAntiEntropy(Subscriber):
 
             return True
 
-        cache = dict()
-        # def update_cache():
-        #     for collection in self._db_core.collections.values():
-        #         if collection not in cache.keys():
-        #             cache[collection] = set()
-        #
-        #         for doc_id in collection.doc_ids():
-        #             cache[collection].add(doc_id)
-
         while True:
             process_queue()
 
