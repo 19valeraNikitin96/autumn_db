@@ -264,7 +264,11 @@ class AAEAnswererWorker:
                 send_timestamp(fake_timestamp)
                 return
 
-            _json = json.loads(data)
+            try:
+                _json = json.loads(data)
+            except Exception as e:
+                logging.warning(e)
+                return
 
             _bytearray = to_bytearray_from_values(_json)
 
@@ -328,27 +332,43 @@ class ActiveAntiEntropy(Subscriber):
             return
 
     def processing(self):
-        def process_queue(acc: set):
+        def process_queue():
+            if self._document_event_queue.qsize() == 0:
+                return False
+
             by_doc_id = dict()
             while self._document_event_queue.qsize() > 0:
                 ev: DocumentOrientedEvent = self._document_event_queue.get()
-                by_doc_id[str(ev.document_id)] = ev
+                doc_id = str(ev.document_id)
+                by_doc_id[doc_id] = ev
 
-            for ev in by_doc_id.values():
-                self._broadcast_document(ev.document_id, self._db_core.collections[ev.collection.name])
-                acc.add(ev.document_id)
+            for doc_id, ev in by_doc_id.items():
+                collection = self._db_core.collections[ev.collection.name]
+                self._broadcast_document(ev.document_id, collection)
+
+            return True
+
+        cache = dict()
+        # def update_cache():
+        #     for collection in self._db_core.collections.values():
+        #         if collection not in cache.keys():
+        #             cache[collection] = set()
+        #
+        #         for doc_id in collection.doc_ids():
+        #             cache[collection].add(doc_id)
 
         while True:
-            total_processed = set()
+            process_queue()
+
             for collection in self._db_core.collections.values():
-                for doc_id in collection.doc_ids():
-                    process_queue(total_processed)
-                    if doc_id in total_processed:
+                doc_ids = collection.doc_ids()
+
+                while len(doc_ids) > 0:
+                    if process_queue():
                         continue
-                    try:
-                        self._broadcast(DocumentId(doc_id), collection)
-                    except:
-                        pass
+
+                    doc_id: DocumentId = doc_ids.pop()
+                    self._broadcast(doc_id, collection)
 
     def _send_document(self, receiver_addr_port: tuple, collection: CollectionName, doc_id: DocumentId, doc: Document, updated_at: datetime):
         bytes_to_send = bytearray()

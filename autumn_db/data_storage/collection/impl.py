@@ -68,6 +68,11 @@ class CollectionOperationsImpl(CollectionOperations):
         super().__init__(name, data_holder_path)
         self._lock = threading.Lock()
 
+        self._doc_ids = set()
+
+    def __len__(self):
+        return len(self._doc_ids)
+
     def create(self):
         path_to_data = os.path.join(self._full_path_to_collection, 'data')
         path_to_metadata = os.path.join(self._full_path_to_collection, 'metadata')
@@ -93,6 +98,9 @@ class CollectionOperationsImpl(CollectionOperations):
         }
         metadata_content_str = json.dumps(metadata_content)
         file_access.create(metadata_pathname, metadata_content_str)
+
+        with self._lock:
+            self._doc_ids.add(DocumentId(filename))
 
     def delete_document(self, filename: str):
         data_pathname = os.path.join(self._full_path_to_collection, 'data', filename)
@@ -166,7 +174,8 @@ class CollectionOperationsImpl(CollectionOperations):
         return data, updated_at
 
     def doc_ids(self) -> set:
-        with self._lock:
-            for dirpath, _, filenames in os.walk(os.path.join(self._full_path_to_collection, 'data')):
-                res = set(filenames)
-                return res
+        return set(self._doc_ids)
+        # with self._lock:
+        #     for dirpath, _, filenames in os.walk(os.path.join(self._full_path_to_collection, 'data')):
+        #         res = set(filenames)
+        #         return res

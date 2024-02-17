@@ -40,7 +40,8 @@ class ClientEndpoint:
         )
         self._socket.listen()
 
-    def _read_aae_config(self) -> AAEConfig:
+    @staticmethod
+    def _read_aae_config() -> AAEConfig:
         filename = os.environ['AAE_CONFIG_NAME']
 
         with open(f'{filename}.json', 'r') as c:
