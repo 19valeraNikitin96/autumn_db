@@ -193,6 +193,12 @@ class DBCoreEngine:
     def collections(self) -> dict:
         return self._collections
 
+    def get_collection_safely(self, collection_name: str) -> CollectionOperations:
+        if collection_name not in self._collections.keys():
+            self.create_collection(collection_name)
+
+        return self._collections[collection_name]
+
 
 class DBOperationEngine:
 
@@ -204,7 +210,6 @@ class DBOperationEngine:
         self._delete_queue = Queue()
 
         self._db_core_engine = db_core
-        self._collections = self._db_core_engine.collections
 
         self._is_stopped = False
 
@@ -219,9 +224,6 @@ class DBOperationEngine:
         return self._db_core_engine
 
     def add_operation(self, operation: DBOperation):
-        if operation.collection not in self._db_core_engine.collections.keys():
-            self._db_core_engine.create_collection(operation.collection)
-
         if operation.operation_type == DBOperationType.CREATE:
             self._create_queue.put(operation)
 
@@ -266,7 +268,7 @@ class DBOperationEngine:
                     self._update_queue.put(update_operation)
 
     def _handle_create_operation(self, operation: CreateOperation):
-        collection: CollectionOperations = self._collections[operation.collection]
+        collection: CollectionOperations = self._db_core_engine.get_collection_safely(operation.collection)
 
         doc_id = str(operation.document_id)
         collection.create_document(doc_id, operation.data)
@@ -276,7 +278,7 @@ class DBOperationEngine:
         self.event_bus.publish(DocumentOperation.CREATE_DOC, ev)
 
     def _handle_update_operation(self, operation: UpdateOperation):
-        collection: CollectionOperations = self._collections[operation.collection]
+        collection: CollectionOperations = self._db_core_engine.get_collection_safely(operation.collection)
 
         filename = str(operation.document_id)
 
@@ -286,7 +288,7 @@ class DBOperationEngine:
         self.event_bus.publish(DocumentOperation.UPDATE_DOC, ev)
 
     def _handle_read_operation(self, operation: ReadOperation):
-        collection: CollectionOperations = self._collections[operation.collection]
+        collection: CollectionOperations = self._db_core_engine.get_collection_safely(operation.collection)
 
         try:
             data = collection.read_document(operation.document_id)
@@ -296,7 +298,7 @@ class DBOperationEngine:
         operation.set_data(data)
 
     def _handle_delete_operation(self, operation: DeleteOperation):
-        collection: CollectionOperations = self._collections[operation.collection]
+        collection: CollectionOperations = self._db_core_engine.get_collection_safely(operation.collection)
 
         filename = str(operation.document_id)
         collection.delete_document(filename)
