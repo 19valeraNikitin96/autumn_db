@@ -482,6 +482,8 @@ class ActiveAntiEntropy(Subscriber):
         return collection_name, doc_id, doc, updated_at
 
     def _on_received_doc(self, collection: CollectionName, doc_id: DocumentId, doc: Document, updated_at: datetime):
+        if collection.name not in self._db_core.collections.keys():
+            self._db_core.create_collection(collection.name)
         db_collection: CollectionOperations = self._db_core.collections[collection.name]
         filename = str(doc_id)
 
