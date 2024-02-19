@@ -219,6 +219,9 @@ class DBOperationEngine:
         return self._db_core_engine
 
     def add_operation(self, operation: DBOperation):
+        if operation.collection not in self._db_core_engine.collections.keys():
+            self._db_core_engine.create_collection(operation.collection)
+
         if operation.operation_type == DBOperationType.CREATE:
             self._create_queue.put(operation)
 
