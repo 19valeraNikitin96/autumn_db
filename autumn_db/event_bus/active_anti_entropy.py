@@ -352,7 +352,7 @@ class ActiveAntiEntropy(Subscriber):
 
             return True
 
-        while True:
+        def iteration():
             process_queue()
 
             for collection in self._db_core.collections.values():
@@ -364,6 +364,12 @@ class ActiveAntiEntropy(Subscriber):
 
                     doc_id: DocumentId = doc_ids.pop()
                     self._broadcast(doc_id, collection)
+
+        while True:
+            try:
+                iteration()
+            except Exception as e:
+                logging.warning(e)
 
     def _send_document(self, receiver_addr_port: tuple, collection: CollectionName, doc_id: DocumentId, doc: Document, updated_at: datetime):
         bytes_to_send = bytearray()
