@@ -304,7 +304,11 @@ class ActiveAntiEntropy(Subscriber):
 
         def snapshot_receiver_handler():
             while True:
-                self._snapshot_receiver.processing()
+                try:
+                    self._snapshot_receiver.processing()
+                except Exception as e:
+                    logging.warning(e)
+                    continue
 
         receiver = threading.Thread(target=snapshot_receiver_handler, args=())
         receiver.start()
