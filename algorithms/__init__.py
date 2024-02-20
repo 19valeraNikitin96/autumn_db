@@ -1,3 +1,5 @@
+import json
+
 from db_driver import DRIVER_BYTEORDER
 
 
@@ -26,6 +28,12 @@ def to_bytes(obj) -> bytearray:
 
     if isinstance(obj, int):
         return obj.to_bytes((obj.bit_length() + 7) // 8, byteorder=DRIVER_BYTEORDER)
+
+    if isinstance(obj, list):
+        return str(obj).encode('utf-8')
+
+    if isinstance(obj, dict):
+        return json.dumps(obj).encode('utf-8')
 
     raise Exception('Could not convert to bytes')
 
