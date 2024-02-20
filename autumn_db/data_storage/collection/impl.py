@@ -91,10 +91,13 @@ class CollectionOperationsImpl(CollectionOperations):
         for dirpath, _, filenames in os.walk(os.path.join(self._full_path_to_collection, 'data')):
             doc_ids = set(filenames)
             with self._lock:
-                self._doc_ids.union(doc_ids)
+                if self.name not in self._doc_snapshot_mapping.keys():
+                    self._doc_snapshot_mapping[self.name] = set()
+
+                self._doc_snapshot_mapping[self.name].union(doc_ids)
 
     def __len__(self):
-        return len(self._doc_ids)
+        return len(self._doc_snapshot_mapping.keys())
 
     def create(self):
         path_to_data = os.path.join(self._full_path_to_collection, 'data')
