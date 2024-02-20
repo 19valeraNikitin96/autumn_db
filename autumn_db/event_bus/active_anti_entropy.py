@@ -9,7 +9,6 @@ from queue import Queue
 
 from typing import List
 
-from algorithms import to_bytearray_from_values
 from algorithms.ph2 import PH2
 from algorithms.spectral_bloom_filter import SpectralBloomFilter
 from autumn_db import DocumentId
@@ -20,19 +19,7 @@ from db_driver import CollectionName, Document, DRIVER_COLLECTION_NAME_LENGTH_BY
     DRIVER_DOCUMENT_ID_LENGTH, CollectionOperation, DocumentOperation, send_message_to
 
 
-def calculate_sbf(_bytearray: bytearray) -> SpectralBloomFilter:
-    res = SpectralBloomFilter()
-    res.add(_bytearray)
-
-    return res
-
-
-def calculate_ph2(_bytearray: bytearray):
-    res = PH2()
-    res.append(_bytearray)
-
-    return res
-
+_timeout = 0.2
 
 @dataclass
 class Endpoint:
@@ -69,7 +56,7 @@ class DocumentReceiver:
         self._socket.bind(
             ('0.0.0.0', port)
         )
-        self._socket.settimeout(0.2)
+        self._socket.settimeout(_timeout)
         self._socket.listen()
 
     def get_document_and_metadata(self) -> bytearray:
@@ -202,7 +189,7 @@ class AAEAnswererWorker:
     def __init__(self, addr: str, port: int, db_core: DBCoreEngine, receivers: List[NodeConfig]):
         super().__init__()
         self._socket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
-        self._socket.settimeout(0.2)
+        self._socket.settimeout(_timeout)
         self._socket.bind(
             (
                 addr, port
@@ -255,26 +242,19 @@ class AAEAnswererWorker:
 
             collection: CollectionOperations = self._db_core.get_collection_safely(collection_name_str)
 
-            try:
-                data = collection.read_document(DocumentId(doc_id))
-            except Exception as e:
-                logging.warning(e)
-                logging.warning(f'Could not read {doc_id}')
+            if doc_id not in collection.doc_ids():
                 fake_timestamp = datetime(1970, 1, 1, 0, 0, 0, 0, tzinfo=timezone.utc)
                 send_timestamp(fake_timestamp)
                 return
 
-            try:
-                _json = json.loads(data)
-            except Exception as e:
-                logging.warning(e)
+            _doc_id = DocumentId(doc_id)
+            sbf_and_ph2 = collection.get_snapshot(_doc_id)
+            if sbf_and_ph2 is None:
+                fake_timestamp = datetime(1970, 1, 1, 0, 0, 0, 0, tzinfo=timezone.utc)
+                send_timestamp(fake_timestamp)
                 return
 
-            _bytearray = to_bytearray_from_values(_json)
-
-            sbf = calculate_sbf(_bytearray)
-            ph2 = calculate_ph2(_bytearray)
-
+            sbf, ph2 = sbf_and_ph2
             local_snapshot = Snapshot(sbf, ph2)
 
             if bytes(local_snapshot.get()) == snapshot:
@@ -405,14 +385,8 @@ class ActiveAntiEntropy(Subscriber):
             )
 
     def _broadcast(self, doc_id: DocumentId, collection: CollectionOperations):
-        data = collection.read_document(doc_id)
-        _json = json.loads(data)
-
-        _bytearray = to_bytearray_from_values(_json)
-
-        sbf = calculate_sbf(_bytearray)
-        ph2 = calculate_ph2(_bytearray)
-
+        sbf_and_ph2 = collection.get_snapshot(doc_id)
+        sbf, ph2 = sbf_and_ph2
         snapshot = Snapshot(sbf, ph2)
         check_snapshot = AAECheckSnapshot(collection.name, str(doc_id), snapshot)
         b_check_snapshot = check_snapshot.get()
@@ -422,7 +396,7 @@ class ActiveAntiEntropy(Subscriber):
 
             sock = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
 
-            sock.settimeout(0.2)
+            sock.settimeout(_timeout)
 
             sock.sendto(b_check_snapshot,
                         receiver_addr_port

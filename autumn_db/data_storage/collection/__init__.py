@@ -1,5 +1,7 @@
 import datetime
 
+from algorithms.ph2 import PH2
+from algorithms.spectral_bloom_filter import SpectralBloomFilter
 from autumn_db import DocumentId
 from autumn_db.data_storage.data_access.impl import FilesystemAccess
 
@@ -70,3 +72,5 @@ class CollectionOperations(object):
     def set_updated_at(self, doc_id: DocumentId, updated_at: datetime.datetime): ...
 
     def doc_ids(self) -> set: ...
+
+    def get_snapshot(self, doc_id: DocumentId) -> tuple: ...

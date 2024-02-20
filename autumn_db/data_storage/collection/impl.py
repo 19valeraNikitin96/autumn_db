@@ -1,13 +1,28 @@
 import datetime
 import json
 import os
-import random
 import shutil
 import threading
-from time import sleep
 
+from algorithms import to_bytearray_from_values
+from algorithms.ph2 import PH2
+from algorithms.spectral_bloom_filter import SpectralBloomFilter
 from autumn_db.autumn_db import DocumentId
 from autumn_db.data_storage.collection import DocumentOperations, MetadataOperations, CollectionOperations, file_access
+
+
+def calculate_sbf(_bytearray: bytearray) -> SpectralBloomFilter:
+    res = SpectralBloomFilter()
+    res.add(_bytearray)
+
+    return res
+
+
+def calculate_ph2(_bytearray: bytearray):
+    res = PH2()
+    res.append(_bytearray)
+
+    return res
 
 
 class MetadataOperationsImpl(MetadataOperations):
@@ -68,7 +83,8 @@ class CollectionOperationsImpl(CollectionOperations):
         super().__init__(name, data_holder_path)
         self._lock = threading.Lock()
 
-        self._doc_ids = set()
+        # self._doc_ids = set()
+        self._doc_snapshot_mapping = dict()
         self._init_initial_doc_ids()
 
     def _init_initial_doc_ids(self):
@@ -83,8 +99,9 @@ class CollectionOperationsImpl(CollectionOperations):
     def create(self):
         path_to_data = os.path.join(self._full_path_to_collection, 'data')
         path_to_metadata = os.path.join(self._full_path_to_collection, 'metadata')
-        os.makedirs(path_to_data)
-        os.makedirs(path_to_metadata)
+        with self._lock:
+            os.makedirs(path_to_data)
+            os.makedirs(path_to_metadata)
 
     def delete(self):
         shutil.rmtree(self._full_path_to_collection)
@@ -106,8 +123,13 @@ class CollectionOperationsImpl(CollectionOperations):
         metadata_content_str = json.dumps(metadata_content)
         file_access.create(metadata_pathname, metadata_content_str)
 
+        #calc Snapshot
+        _bytearray = to_bytearray_from_values(json.loads(data))
+        sbf = calculate_sbf(_bytearray)
+        ph2 = calculate_ph2(_bytearray)
+
         with self._lock:
-            self._doc_ids.add(DocumentId(filename))
+            self._doc_snapshot_mapping[filename] = (sbf, ph2)
 
     def delete_document(self, filename: str):
         data_pathname = os.path.join(self._full_path_to_collection, 'data', filename)
@@ -140,9 +162,15 @@ class CollectionOperationsImpl(CollectionOperations):
         doc_oper = self._get_document_operator(doc_id)
         metadata_oper = self._get_metadata_operator(doc_id)
 
+        # calc Snapshot
+        _bytearray = to_bytearray_from_values(json.loads(data))
+        sbf = calculate_sbf(_bytearray)
+        ph2 = calculate_ph2(_bytearray)
+
         with self._lock:
             doc_oper.update(data)
             metadata_oper.set_updated_at(updated_at)
+            self._doc_snapshot_mapping[doc_id] = (sbf, ph2)
 
     def get_updated_at(self, doc_id: DocumentId) -> datetime.datetime:
         doc_id = str(doc_id)
@@ -181,8 +209,16 @@ class CollectionOperationsImpl(CollectionOperations):
         return data, updated_at
 
     def doc_ids(self) -> set:
-        return set(self._doc_ids)
-        # with self._lock:
-        #     for dirpath, _, filenames in os.walk(os.path.join(self._full_path_to_collection, 'data')):
-        #         res = set(filenames)
-        #         return res
+        with self._lock:
+            ids = self._doc_snapshot_mapping.keys()
+
+        res = set(ids)
+        return res
+
+    def get_snapshot(self, doc_id: DocumentId) -> tuple:
+        _doc_id = str(doc_id)
+        if _doc_id not in self._doc_snapshot_mapping.keys():
+            return None
+
+        res = self._doc_snapshot_mapping[_doc_id]
+        return res
